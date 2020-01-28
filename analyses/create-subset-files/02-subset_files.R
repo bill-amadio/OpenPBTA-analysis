@@ -100,7 +100,7 @@ subset_files <- function(filename, biospecimen_ids, output_directory) {
   } else if (grepl("pbta-fusion", filename)) {
     # original files contain the biospecimen IDs in a column called 'tumor_id',
     # the filtered/prioritized list biospecimen IDs are in 'Sample'
-    if (grepl("putative-oncogenic", filename)) {
+    if (grepl("putative-oncogenic|bysample", filename)) {
       biospecimen_column <- "Sample"
     } else {
       biospecimen_column <- "tumor_id"
@@ -118,6 +118,11 @@ subset_files <- function(filename, biospecimen_ids, output_directory) {
       dplyr::filter(Kids.First.Biospecimen.ID.Tumor %in% biospecimen_ids) %>%
       readr::write_tsv(output_file)
 
+  } else if (grepl("cnv_consensus", filename)) {
+    cnv_consensus <- readr::read_tsv(filename)
+    cnv_consensus %>%
+      dplyr::filter(Biospecimen %in% biospecimen_ids) %>%
+      readr::write_tsv(output_file)
   } else if (grepl(".rds", filename)) {
 
     # any column name that contains 'BS_' is a biospecimen ID

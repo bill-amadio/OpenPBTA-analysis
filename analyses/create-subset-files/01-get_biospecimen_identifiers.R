@@ -71,9 +71,9 @@ get_biospecimen_ids <- function(filename, id_mapping_df) {
     }
   } else if (grepl("pbta-fusion", filename)) {
     fusion_file <- read_tsv(filename)
-    # the biospecimen IDs in the filtered/prioritize fusion list included with 
+    # the biospecimen IDs in the filtered/prioritize fusion list included with
     # the download are in a column called 'Sample'
-    if (grepl("putative-oncogenic", filename)) {
+    if (grepl("putative-oncogenic|bysample", filename)) {
       biospecimen_ids <- unique(fusion_file$Sample)
     } else {
       # the original files contain the relevant IDs in a column 'tumor_id'
@@ -88,6 +88,9 @@ get_biospecimen_ids <- function(filename, id_mapping_df) {
     expression_file <- read_rds(filename) %>%
       dplyr::select(dplyr::contains("BS_"))
     biospecimen_ids <- unique(colnames(expression_file))
+  } else if (grepl("cnv_consensus", filename)) {
+    cnv_consensus <- read_tsv(filename)
+    biospecimen_ids <- unique(cnv_consensus$Biospecimen)
   } else {
     # error-handling
     stop("File type unrecognized by 'get_biospecimen_ids'")
@@ -120,7 +123,7 @@ option_list <- list(
   make_option(
     c("-r", "--supported_string"),
     type = "character",
-    default = "pbta-snv|pbta-cnv|pbta-fusion|pbta-isoform|pbta-sv|pbta-gene",
+    default = "pbta-snv|pbta-cnv|pbta-fusion|pbta-isoform|pbta-sv|pbta-gene|cnv_consensus",
     help = "string for pattern matching used to subset to only supported files"
   ),
   make_option(
@@ -136,12 +139,27 @@ option_list <- list(
     default = 2019,
     help = "seed integer",
     metavar = "integer"
+  ),
+  make_option(
+    c("-l", "--local"),
+    type = "integer",
+    default = 0,
+    help = "0 or 1; setting to 1 will skip the larger MAF files for local testing"
   )
 )
 
 # Read the arguments passed
 opt_parser <- OptionParser(option_list = option_list)
 opt <- parse_args(opt_parser)
+
+# Handle options for whether or not this is running locally on someone's laptop
+if (opt$local == 0) {
+  running_locally <- FALSE
+} else if (opt$local == 1) {
+  running_locally <- TRUE
+} else {
+  stop("--local must be 0 or 1!")
+}
 
 # set up required arguments: input directory and output file
 data_directory <- opt$data_directory
@@ -185,9 +203,21 @@ files_to_subset <-
   files_to_subset[which(!(files_to_subset %in% c(polya_rsem_files[-1],
                                                  stranded_rsem_files[-1])))]
 
-# TODO: REMOVE THIS once you are no longer testing locally!
-# this is removing the larger 2 of the 4 MAF files
-# files_to_subset <- files_to_subset[-grep("vardict|mutect2", files_to_subset)]
+# drop recurrently fused genes by histology file -- it is small enough to
+# include the entire thing
+files_to_subset <-
+  files_to_subset[-grep("fused-genes-byhistology", files_to_subset)]
+
+# drop GISTIC zipped file from this list -- there are many files that are not
+# currently documented
+# we'll include the entire zipped folder
+files_to_subset <-
+  files_to_subset[-grep("pbta-cnv-cnvkit-gistic.zip", files_to_subset)]
+
+# if testing this locally, drop the 2 larger of the 4 MAF files
+if (running_locally) {
+  files_to_subset <- files_to_subset[-grep("vardict|mutect2", files_to_subset)]
+}
 
 # get the participant ID to biospecimen ID
 id_gender_df <- read_tsv(file.path(data_directory, "pbta-histologies.tsv")) %>%
@@ -241,12 +271,12 @@ stranded_matched <- intersect(stranded_in_all, other_strategy_in_all)
 # first consider the poly-A samples
 polya_for_subset <- sample(polya_matched, num_matched_polya)
 
-# we need to sample the stranded participants keeping the reported gender in 
+# we need to sample the stranded participants keeping the reported gender in
 # mind -- currently this is only for the sex prediction from RNA-seq data
 id_gender_df <- id_gender_df %>%
   dplyr::filter(Kids_First_Participant_ID %in% stranded_matched)
 
-# get the number of samples for each reported gender - we'll split 54% males 
+# get the number of samples for each reported gender - we'll split 54% males
 # which is what the 'matched' cohort is like
 num_male <- ceiling(0.54 * num_matched_stranded)
 num_female <- num_matched_stranded - num_male
